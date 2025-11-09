@@ -49,12 +49,26 @@ class EvolutionAPI(StackComponent):
         
         # Obtener configuración
         network = self.state_manager.get_network_name() or DEFAULTS['network']
-        postgres_password = self.state_manager.get_postgres_password()
         
-        if not postgres_password:
-            self.print_error("No se encontró la contraseña de PostgreSQL")
+        # CORRECCIÓN: Recuperar password de PostgreSQL correctamente
+        print("\n🔍 Recuperando configuración de PostgreSQL...")
+        pgvector_data = self.state_manager.get_component('pgvector')
+        
+        if not pgvector_data:
+            self.print_error("PostgreSQL (pgvector) no está instalado")
             print("   Instala PostgreSQL primero (opción 5)")
             return False
+        
+        postgres_password = pgvector_data.get('password')
+        
+        if not postgres_password:
+            self.print_error("No se encontró la contraseña de PostgreSQL en el state")
+            print("   Reinstala PostgreSQL (opción 5)")
+            print(f"\n   Debug - State de pgvector: {pgvector_data}")
+            return False
+        
+        print(f"✅ Contraseña de PostgreSQL recuperada del state")
+        print(f"   Password: {postgres_password[:8]}... (primeros 8 caracteres)")
         
         print("\n🌍 Configuración de Evolution API")
         domain = get_valid_input(
@@ -77,6 +91,8 @@ class EvolutionAPI(StackComponent):
         # Construir DATABASE_CONNECTION_URI
         database_uri = f"postgresql://postgres:{postgres_password}@pgvector:5432/evolution"
         chatwoot_import_uri = f"postgresql://postgres:{postgres_password}@pgvector:5432/chatwoot?sslmode=disable"
+        
+        print(f"\n📊 Database URI construido: postgresql://postgres:****@pgvector:5432/evolution")
         
         # Reemplazar variables
         print("\n📝 Configurando Evolution API...")
@@ -110,6 +126,7 @@ class EvolutionAPI(StackComponent):
         print(f"\n🔗 URL: https://{domain}")
         print(f"🔑 API Key: {api_key}")
         print(f"🗄️  Base de datos: evolution")
+        print(f"🔌 Connection URI: postgresql://postgres:****@pgvector:5432/evolution")
         print("\n📝 IMPORTANTE:")
         print("   • La base de datos se creará automáticamente")
         print("   • Usa el API Key para autenticar requests")
