@@ -4,189 +4,138 @@ import sys
 import os
 
 def run_command(command, shell=False):
-    """Ejecuta un comando y retorna el resultado"""
+    """Ejecuta un comando y muestra el output en tiempo real"""
     try:
         if shell:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         else:
-            result = subprocess.run(command.split(), capture_output=True, text=True)
+            process = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         
-        if result.returncode != 0:
-            print(f"Error ejecutando comando: {command}")
-            print(f"Error: {result.stderr}")
-            return False
-        return True
+        # Mostrar output en tiempo real
+        for line in process.stdout:
+            print(line, end='')
+        
+        process.wait()
+        return process.returncode == 0
     except Exception as e:
-        print(f"Excepción ejecutando comando: {e}")
+        print(f"❌ Error ejecutando comando: {e}")
         return False
 
 def check_root():
     """Verifica si el script se ejecuta como root"""
     if os.geteuid() != 0:
-        print("Este script debe ejecutarse como root o con sudo")
+        print("❌ Este script debe ejecutarse como root o con sudo")
         sys.exit(1)
 
-def install_docker():
-    """Instala Docker en Ubuntu"""
-    print("🔧 Instalando Docker...")
-    
-    # Actualizar paquetes
-    if not run_command("apt update"):
-        return False
-    
-    # Instalar dependencias
-    dependencies = [
-        "apt-transport-https",
-        "ca-certificates",
-        "curl",
-        "gnupg",
-        "lsb-release"
-    ]
-    
-    for dep in dependencies:
-        if not run_command(f"apt install -y {dep}"):
-            return False
-    
-    # Agregar clave GPG de Docker
-    if not run_command("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg", shell=True):
-        return False
-    
-    # Agregar repositorio de Docker
-    codename = subprocess.run("lsb_release -cs", shell=True, capture_output=True, text=True).stdout.strip()
-    repo_cmd = f'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {codename} stable" > /etc/apt/sources.list.d/docker.list'
-    
-    if not run_command(repo_cmd, shell=True):
-        return False
-    
-    # Actualizar e instalar Docker
-    if not run_command("apt update"):
-        return False
-    
-    if not run_command("apt install -y docker-ce docker-ce-cli containerd.io"):
-        return False
-    
-    # Iniciar y habilitar servicio Docker
-    if not run_command("systemctl start docker"):
-        return False
-    
-    if not run_command("systemctl enable docker"):
-        return False
-    
-    # Agregar usuario actual al grupo docker (opcional)
-    current_user = os.getenv('SUDO_USER')
-    if current_user:
-        if not run_command(f"usermod -aG docker {current_user}"):
-            print("⚠️  No se pudo agregar el usuario al grupo docker, pero la instalación continuará")
-    
-    print("✅ Docker instalado correctamente")
-    return True
-
-def create_docker_network(network_name):
-    """Crea una red Docker attachable"""
-    print(f"🌐 Creando red Docker: {network_name}")
-    
-    # Verificar si la red ya existe
-    check_cmd = f"docker network ls --filter name={network_name} --format '{{.Name}}'"
-    result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-    
-    if network_name in result.stdout:
-        print(f"⚠️  La red '{network_name}' ya existe")
-        return True
-    
-    # Crear la red con attachable: true
-    create_cmd = f"docker network create --driver overlay --attachable {network_name}"
-    if run_command(create_cmd, shell=True):
-        print(f"✅ Red '{network_name}' creada exitosamente")
-        return True
-    else:
-        print(f"❌ Error creando la red '{network_name}'")
-        return False
-
-def init_swarm():
-    """Inicializa Docker Swarm"""
-    print("🐳 Inicializando Docker Swarm...")
-    
-    # Verificar si Swarm ya está inicializado
-    check_cmd = "docker info --format '{{.Swarm.LocalNodeState}}'"
-    result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
-    
-    if 'active' in result.stdout:
-        print("⚠️  Docker Swarm ya está inicializado")
-        return True
-    
-    # Inicializar Swarm
-    if run_command("docker swarm init", shell=True):
-        print("✅ Docker Swarm inicializado correctamente")
-        
-        # Mostrar información del swarm
-        print("\n📋 Información del Swarm:")
-        run_command("docker node ls", shell=True)
-        return True
-    else:
-        print("❌ Error inicializando Docker Swarm")
-        return False
-
-def main():
-    """Función principal del script"""
-    print("🚀 Script de instalación de Docker y configuración de Swarm")
+def install_docker_simple():
+    """Instala Docker usando el método simple"""
+    print("🚀 Instalando Docker...")
     print("=" * 50)
     
-    # Verificar permisos de root
+    # Paso 1: Actualizar sistema e instalar apparmor-utils
+    print("📦 Paso 1: Actualizando sistema e instalando dependencias...")
+    if not run_command("apt-get update"):
+        return False
+    
+    if not run_command("apt-get install -y apparmor-utils"):
+        print("⚠️  Continuando sin apparmor-utils...")
+    
+    # Paso 2: Configurar hostname (opcional)
+    print("\n🏷️  Paso 2: Configurando hostname...")
+    hostname = input("¿Quieres configurar un hostname? (ej: manager1) [s/N]: ").strip().lower()
+    if hostname in ['s', 'si', 'sí', 'y', 'yes']:
+        new_hostname = input("Ingresa el hostname: ").strip()
+        if new_hostname:
+            run_command(f"hostnamectl set-hostname {new_hostname}")
+            print(f"✅ Hostname configurado como: {new_hostname}")
+    
+    # Paso 3: Instalar Docker con el script oficial
+    print("\n🐳 Paso 3: Instalando Docker con script oficial...")
+    print("📥 Descargando e instalando Docker...")
+    if run_command("curl -fsSL https://get.docker.com | bash", shell=True):
+        print("✅ Docker instalado correctamente")
+    else:
+        print("❌ Error instalando Docker")
+        return False
+    
+    return True
+
+def configure_swarm_and_network():
+    """Configura Swarm y crea la red"""
+    print("\n🔧 Paso 4: Configurando Docker Swarm y red...")
+    
+    # Inicializar Swarm
+    print("🐳 Inicializando Docker Swarm...")
+    if run_command("docker swarm init"):
+        print("✅ Docker Swarm inicializado")
+    else:
+        print("❌ Error inicializando Swarm (puede que ya esté inicializado)")
+    
+    # Crear red overlay
+    network_name = input("\n📝 Ingresa el nombre para la red overlay: ").strip()
+    if not network_name:
+        network_name = "network_public"
+        print(f"🔧 Usando nombre por defecto: {network_name}")
+    
+    print(f"🌐 Creando red: {network_name}")
+    if run_command(f"docker network create --driver=overlay --attachable {network_name}"):
+        print(f"✅ Red '{network_name}' creada exitosamente")
+    else:
+        print("❌ Error creando la red (puede que ya exista)")
+    
+    return True
+
+def show_final_info():
+    """Muestra información final"""
+    print("\n" + "=" * 50)
+    print("🎉 ¡Configuración completada!")
+    print("=" * 50)
+    
+    # Mostrar información del sistema
+    print("\n📊 Información del sistema:")
+    run_command("docker --version")
+    print()
+    run_command("docker node ls")
+    print()
+    run_command("docker network ls")
+    
+    print("\n🔧 Comandos útiles:")
+    print("   - Ver nodos: docker node ls")
+    print("   - Ver redes: docker network ls")
+    print("   - Unir otro nodo: docker swarm join-token worker")
+    print("   - Ver servicios: docker service ls")
+    
+    print("\n⚠️  Recuerda:")
+    print("   - Si agregaste un usuario al grupo docker, cierra y abre la sesión")
+    print("   - Para usar swarm en otros nodos, usa: docker swarm join-token worker")
+
+def main():
+    """Función principal"""
+    print("🚀 Script de instalación simple de Docker y Swarm")
+    print("Basado en tu método probado y efectivo")
+    print("=" * 50)
+    
+    # Verificar permisos
     check_root()
     
-    # Interacción para el nombre de la red
-    while True:
-        network_name = input("\n📝 Ingresa el nombre para la red Docker (debe seguir las convenciones de Docker): ").strip()
-        
-        if network_name:
-            # Validación básica del nombre
-            if all(c.isalnum() or c in '_-' for c in network_name) and not network_name.startswith(('-', '_')):
-                break
-            else:
-                print("❌ El nombre debe contener solo letras, números, guiones y guiones bajos, y no puede empezar con guión")
-        else:
-            print("❌ El nombre no puede estar vacío")
-    
-    print(f"\n🔍 Resumen de la configuración:")
-    print(f"   - Red Docker: {network_name}")
-    print(f"   - Tipo: overlay")
-    print(f"   - Attachable: true")
-    
-    confirm = input("\n¿Continuar con la instalación? (s/N): ").strip().lower()
+    # Confirmar instalación
+    confirm = input("¿Continuar con la instalación? [s/N]: ").strip().lower()
     if confirm not in ['s', 'si', 'sí', 'y', 'yes']:
         print("❌ Instalación cancelada")
         sys.exit(0)
     
-    # Proceso de instalación
-    print("\n" + "=" * 50)
-    
-    # 1. Instalar Docker
-    if not install_docker():
+    # Instalar Docker
+    if not install_docker_simple():
         print("❌ Error en la instalación de Docker")
         sys.exit(1)
     
-    # 2. Inicializar Swarm
-    if not init_swarm():
-        print("❌ Error inicializando Swarm")
+    # Configurar Swarm y red
+    if not configure_swarm_and_network():
+        print("❌ Error configurando Swarm y red")
         sys.exit(1)
     
-    # 3. Crear red Docker
-    if not create_docker_network(network_name):
-        print("❌ Error creando la red Docker")
-        sys.exit(1)
-    
-    # Mostrar resumen final
-    print("\n" + "=" * 50)
-    print("🎉 ¡Instalación completada exitosamente!")
-    print(f"📋 Resumen:")
-    print(f"   ✅ Docker instalado y funcionando")
-    print(f"   ✅ Docker Swarm inicializado")
-    print(f"   ✅ Red '{network_name}' creada (attachable: true)")
-    print("\n🔧 Comandos útiles:")
-    print(f"   - Ver redes: docker network ls")
-    print(f"   - Ver nodos: docker node ls")
-    print(f"   - Inspeccionar red: docker network inspect {network_name}")
-    print(f"   - Unirse al swarm (otros nodos): docker swarm join-token worker")
+    # Mostrar información final
+    show_final_info()
 
 if __name__ == "__main__":
     main()
